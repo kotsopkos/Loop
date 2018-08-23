@@ -198,6 +198,7 @@ final class LoopDataManager {
         set {
             lockedLastLoopCompleted.value = newValue
 
+            NotificationManager.clearLoopNotRunningNotifications()
             NotificationManager.scheduleLoopNotRunningNotifications()
             AnalyticsManager.shared.loopDidSucceed()
         }
@@ -621,7 +622,7 @@ extension LoopDataManager {
         _ = updateGroup.wait(timeout: .distantFuture)
 
         guard let lastGlucoseDate = latestGlucoseDate else {
-            throw LoopError.missingDataError(details: "Glucose data not available", recovery: "Check your CGM data source")
+            throw LoopError.missingDataError(.glucose)
         }
         
         // Reinitialize integral retrospective correction states based on past 60 minutes of data
@@ -814,7 +815,7 @@ extension LoopDataManager {
         dispatchPrecondition(condition: .onQueue(dataAccessQueue))
 
         guard let basalRates = basalRateSchedule else {
-            throw LoopError.configurationError("Basal Rate Schedule")
+            throw LoopError.configurationError(.basalRateSchedule)
         }
 
         let pendingTempBasalInsulin: Double
@@ -841,11 +842,11 @@ extension LoopDataManager {
         dispatchPrecondition(condition: .onQueue(dataAccessQueue))
 
         guard let model = insulinModelSettings?.model else {
-            throw LoopError.configurationError("Check settings")
+            throw LoopError.configurationError(.insulinModel)
         }
 
         guard let glucose = self.glucoseStore.latestGlucose else {
-            throw LoopError.missingDataError(details: "Cannot predict glucose due to missing input data", recovery: "Check your CGM data source")
+            throw LoopError.missingDataError(.glucose)
         }
 
         var momentum: [GlucoseEffect] = []
@@ -954,15 +955,24 @@ extension LoopDataManager {
      */
     private func updateRetrospectiveGlucoseEffect(effectDuration: TimeInterval = TimeInterval(minutes: 60)) throws {
         dispatchPrecondition(condition: .onQueue(dataAccessQueue))
+        
+        guard let carbEffect = self.carbEffect else {
+            self.retrospectivePredictedGlucose = nil
+            throw LoopError.missingDataError(.carbEffect)
+        }
 
+<<<<<<< HEAD
         guard
             let carbEffect = self.carbEffect,
             let insulinEffect = self.insulinEffect
         else {
             self.overallRetrospectiveCorrection = nil
             self.glucoseUpdated = false
+=======
+        guard let insulinEffect = self.insulinEffect else {
+>>>>>>> upstream/dev
             self.retrospectivePredictedGlucose = nil
-            throw LoopError.missingDataError(details: "Cannot retrospect glucose due to missing input data", recovery: nil)
+            throw LoopError.missingDataError(.insulinEffect)
         }
         
         // integral retrospective correction variables
@@ -1013,6 +1023,7 @@ extension LoopDataManager {
         let glucoseUnit = HKUnit.milligramsPerDeciliter
         let velocityUnit = glucoseUnit.unitDivided(by: HKUnit.second())
 
+<<<<<<< HEAD
         // get user settings relevant for calculation of integral retrospective correction safety parameters
         guard
             let glucoseTargetRange = settings.glucoseTargetRangeSchedule,
@@ -1089,6 +1100,13 @@ extension LoopDataManager {
         
         // Velocity denominator set to safe fixed default retrospection interval of 30*60 = 1800 seconds
         let velocity = HKQuantity(unit: velocityUnit, doubleValue: scaledDiscrepancy / 1800.0)
+=======
+        let discrepancy = change.end.quantity.doubleValue(for: glucoseUnit) - lastGlucose.quantity.doubleValue(for: glucoseUnit) // mg/dL
+
+        // Determine the interval of discrepancy, requiring a minimum of the configured interval to avoid magnifying effects from short intervals
+        let discrepancyTime = max(change.end.endDate.timeIntervalSince(change.start.endDate), settings.retrospectiveCorrectionInterval)
+        let velocity = HKQuantity(unit: velocityUnit, doubleValue: discrepancy / discrepancyTime)
+>>>>>>> upstream/dev
         let type = HKQuantityType.quantityType(forIdentifier: HKQuantityTypeIdentifier.bloodGlucose)!
         let glucose = HKQuantitySample(type: type, quantity: change.end.quantity, start: change.end.startDate, end: change.end.endDate)
         
@@ -1139,12 +1157,12 @@ extension LoopDataManager {
 
         guard let glucose = glucoseStore.latestGlucose else {
             self.predictedGlucose = nil
-            throw LoopError.missingDataError(details: "Glucose", recovery: "Check your CGM data source")
+            throw LoopError.missingDataError(.glucose)
         }
 
         guard let pumpStatusDate = doseStore.lastReservoirValue?.startDate else {
             self.predictedGlucose = nil
-            throw LoopError.missingDataError(details: "Reservoir", recovery: "Check that your pump is in range")
+            throw LoopError.missingDataError(.reservoir)
         }
 
         let startDate = Date()
@@ -1161,17 +1179,17 @@ extension LoopDataManager {
 
         guard glucoseMomentumEffect != nil else {
             self.predictedGlucose = nil
-            throw LoopError.missingDataError(details: "Momentum effects", recovery: nil)
+            throw LoopError.missingDataError(.momentumEffect)
         }
 
         guard carbEffect != nil else {
             self.predictedGlucose = nil
-            throw LoopError.missingDataError(details: "Carb effects", recovery: nil)
+            throw LoopError.missingDataError(.carbEffect)
         }
 
         guard insulinEffect != nil else {
             self.predictedGlucose = nil
-            throw LoopError.missingDataError(details: "Insulin effects", recovery: nil)
+            throw LoopError.missingDataError(.insulinEffect)
         }
 
         let predictedGlucose = try predictGlucose(using: settings.enabledEffects)
@@ -1185,7 +1203,7 @@ extension LoopDataManager {
             let maxBolus = settings.maximumBolus,
             let model = insulinModelSettings?.model
         else {
-            throw LoopError.configurationError("Check settings")
+            throw LoopError.configurationError(.generalSettings)
         }
         
         guard lastRequestedBolus == nil
